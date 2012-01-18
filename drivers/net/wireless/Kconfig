@@ -295,7 +295,7 @@ source "drivers/net/wireless/zd1211rw/Kconfig"
 # LGE_CHANGE_S, [jongpil.yoon@lge.com], 2011-01-07, <Add BCM4330>
 source "drivers/net/wireless/bcm4330/Kconfig"
 # LGE_CHANGE_E, [jongpil.yoon@lge.com], 2011-01-07, <Add BCM4330>
-if MACH_MSM7X27_MUSCAT
+if MACH_MSM7X27_MUSCAT || MACH_MSM7X27_PECAN
 source "drivers/net/wireless/bcm4329/Kconfig"
 endif
 if MACH_MSM7X27_THUNDERG

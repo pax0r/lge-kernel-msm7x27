@@ -151,13 +151,19 @@ static void mdp_dma2_update_lcd(struct msm_fb_data_type *mfd)
 
 	/* LGE_CHANGE, Enabling dither */
 	dma2_cfg_reg |= DMA_DITHER_EN;
-
 	src = (uint8 *) iBuf->buf;
-	/* starting input address */
-	src += iBuf->dma_x * outBpp + iBuf->dma_y * ystride;
 
+	/* starting input address */
+#if defined(CONFIG_MACH_MSM7X27_PECAN) || defined(CONFIG_MACH_MSM7X27_HAZEL)
+	iBuf->dma_x = iBuf->dma_y = 0;	
+	iBuf->dma_w = mdp_curr_dma2_update_width = 240; 	//iBuf->dma_w;	
+	iBuf->dma_h = mdp_curr_dma2_update_height = 320; //iBuf->dma_h; 
+#else
+	src += iBuf->dma_x * outBpp + iBuf->dma_y * ystride;
 	mdp_curr_dma2_update_width = iBuf->dma_w;
 	mdp_curr_dma2_update_height = iBuf->dma_h;
+#endif /* CONFIG_MACH_MSM7X27_PECAN */
+
 
 	/* MDP cmd block enable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
