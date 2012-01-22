@@ -34,6 +34,10 @@
 
 #include <linux/fb.h>
 
+#ifdef CONFIG_MACH_LGE
+#include <mach/board_lge.h>
+#endif
+
 #include "mdp.h"
 #include "msm_fb.h"
 #include "mddihost.h"
@@ -153,6 +157,16 @@ static void mdp_dma2_update_lcd(struct msm_fb_data_type *mfd)
 	dma2_cfg_reg |= DMA_DITHER_EN;
 	src = (uint8 *) iBuf->buf;
 
+#if CONFIG_LGE_HIDDEN_RESET_PATCH 
+	if (on_hidden_reset) {
+		src = (uint8 *) lge_get_fb_copy_phys_addr();
+	} else {
+		src = (uint8 *) iBuf->buf;
+		/* starting input address */
+	}
+#else
+	src = (uint8 *) iBuf->buf;
+#endif
 	/* starting input address */
 #if defined(CONFIG_MACH_MSM7X27_PECAN) || defined(CONFIG_MACH_MSM7X27_HAZEL)
 	iBuf->dma_x = iBuf->dma_y = 0;	

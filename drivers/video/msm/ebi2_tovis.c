@@ -663,7 +663,7 @@ static int __init tovis_qvga_init(void)
 		pinfo->yres = 320;
 		pinfo->type = EBI2_PANEL;
 		pinfo->pdest = DISPLAY_1;
-		pinfo->wait_cycle = 0x908000;
+		pinfo->wait_cycle = 0x108000;  // ebi2 write timing reduced by bongkyu.kim
 
 		pinfo->bpp = 16;
 		pinfo->fb_num = 2;

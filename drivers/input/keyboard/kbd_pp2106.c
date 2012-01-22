@@ -39,7 +39,7 @@ static const char *kbd_name  = "pp2106";
 
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
-#ifdef CONFIG_MACH_MSM7X27_MUSCAT
+#ifdef CONFIG_MACH_MSM7X27_MUSCAT || CONFIG_MACH_MSM7X27_PECAN
 #include <linux/earlysuspend.h>
 
 static struct early_suspend kbd_early_suspend;

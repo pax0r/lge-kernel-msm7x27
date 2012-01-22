@@ -75,7 +75,10 @@
 
 #ifdef CONFIG_MACH_MSM7X27_MUSCAT
 /* I dont know why I allocate bigger than real lcd size in muscat , because EBI2 interface? */
+/* Pecan has same as muscat so give it a try */
 #define HIDDEN_RESET_FB_SIZE 165600
+#elif CONFIG_MACH_MSM7X27_PECAN
+#define HIDDEN_RESET_FB_SIZE (256 * 320 * 2)
 #else
 #define HIDDEN_RESET_FB_SIZE (320*480*2)
 #endif
@@ -232,6 +235,8 @@ struct kr3dh_platform_data {
 	u8 negate_y;
 	u8 negate_z;
 
+	int irq_pin;
+	
 	int (*kr_init)(void);
 	void (*kr_exit)(void);
 	int (*power_on)(void);
@@ -460,6 +465,13 @@ unsigned lge_get_nv_qem(void);
 
 typedef void (gpio_i2c_init_func_t)(int bus_num);
 int __init init_gpio_i2c_pin(struct i2c_gpio_platform_data *i2c_adap_pdata,
+		struct gpio_i2c_pin gpio_i2c_pin,
+		struct i2c_board_info *i2c_board_info_data);
+
+/* FIXME: hazel rev_c doesn't have pullup register in touch
+ * thus, internal pullup enabled by bongkyu.kim
+ */
+int __init init_gpio_i2c_pin_touch(struct i2c_gpio_platform_data *i2c_adap_pdata,
 		struct gpio_i2c_pin gpio_i2c_pin,
 		struct i2c_board_info *i2c_board_info_data);
 

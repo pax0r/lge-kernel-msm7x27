@@ -1,4 +1,4 @@
-/* linux/arch/arm/mach-msm/lge/board-thunderg-snd.c
+/* linux/arch/arm/mach-msm/lge/board-pecan-snd.c
  *
  * Copyright (C) 2010 LGE.
  *
@@ -16,7 +16,7 @@
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <mach/board.h>
-#include "board-thunderg.h"
+#include "board-pecan.h"
 
 #define SND(desc, num) { .name = #desc, .id = num }
 static struct snd_endpoint snd_endpoints_list[] = {

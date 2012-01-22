@@ -29,9 +29,6 @@
 #include <mach/board.h>
 #include "board-pecan.h"
 
-#define GPIOF_INPUT             0x00020000
-#define GPIOF_DRIVE_OUTPUT      0x00040000
-
 #ifdef CONFIG_MMC
 static void sdcc_gpio_init(void)
 {

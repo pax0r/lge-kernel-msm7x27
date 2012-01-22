@@ -60,12 +60,14 @@ static struct dev_pm_ops ebi2_lcd_dev_pm_ops = {
 static struct platform_driver ebi2_lcd_driver = {
 	.probe = ebi2_lcd_probe,
 	.remove = ebi2_lcd_remove,
+#ifndef CONFIG_HAS_EARLYSUSPEND
+#ifdef CONFIG_PM
 	.suspend = NULL,
-#if 0 /* FIXME: */
 	.suspend_late = NULL,
 	.resume_early = NULL,
-#endif
 	.resume = NULL,
+#endif
+#endif 
 	.shutdown = NULL,
 	.driver = {
 		   .name = "ebi2_lcd",
