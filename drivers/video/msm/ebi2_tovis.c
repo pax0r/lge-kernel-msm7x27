@@ -75,7 +75,7 @@ static boolean display_on = FALSE;
 
 static unsigned int te_lines = 0xef;
 
-#if defined (CONFIG_MACH_MSM7X27_JUMP)
+#if defined (CONFIG_MACH_MSM7X27_JUMP) || (CONFIG_MACH_MSM7X27_PECAN)
 static unsigned int mactl = 0x48;
 #else
 static unsigned int mactl = 0x98;

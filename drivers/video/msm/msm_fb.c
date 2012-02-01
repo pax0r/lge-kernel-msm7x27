@@ -93,7 +93,7 @@ u32 msm_fb_msg_level = 7;
 u32 mddi_msg_level = 5;
 #ifdef CONFIG_LGE_BLUE_ERROR_HANDLER
 int msm_fb_refesh_enabled = 1;	// LGE_CHANGE [bluerti@lge.com] 2009-07-18
-#ifdef CONFIG_MACH_MSM7X27_MUSCAT || CONFIG_MACH_MSM7X27_PECAN
+#ifdef CONFIG_MACH_MSM7X27_MUSCAT
 static unsigned char *hidden_fbram;
 #endif
 #endif
@@ -256,8 +256,6 @@ void *lge_get_fb_addr(void)
 {
 #ifndef CONFIG_MACH_MSM7X27_MUSCAT
 	return (fbram - (320*240*2*2));
-#elif CONFIG_MACH_MSM7X27_PECAN
-	return (fbram - (256 * 320 * 2 * 2));
 #else
 	return hidden_fbram;
 #endif
@@ -352,7 +350,7 @@ static int msm_fb_probe(struct platform_device *pdev)
 		}
 		MSM_FB_INFO("msm_fb_probe:  phy_Addr = 0x%x virt = 0x%x\n",
 			     (int)fbram_phys, (int)fbram);
-#ifdef CONFIG_MACH_MSM7X27_MUSCAT
+#ifdef CONFIG_MACH_MSM7X27_MUSCAT 
 #ifdef CONFIG_LGE_HIDDEN_RESET_PATCH
 		hidden_fbram = fbram;
 #endif

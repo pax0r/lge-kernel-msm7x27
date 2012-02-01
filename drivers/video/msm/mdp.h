@@ -532,7 +532,7 @@ struct mdp_dma_data {
 #define DMA_DSTC1B_5BITS BIT(2)
 #define DMA_DSTC2R_5BITS BIT(4)
 
-// #define DMA_PACK_TIGHT                      BIT(6) // pecan
+#define DMA_PACK_TIGHT                      BIT(6)
 #define DMA_PACK_LOOSE                      0
 #define DMA_PACK_ALIGN_LSB                  0
 /*
@@ -550,7 +550,6 @@ struct mdp_dma_data {
 #define DMA_IBUF_FORMAT_xRGB8888_OR_ARGB8888  BIT(26)
 
 #ifdef CONFIG_FB_MSM_MDP22
-#define DMA_PACK_TIGHT                      BIT(6) // pecan 
 #define DMA_OUT_SEL_MDDI BIT(14)
 #define DMA_AHBM_LCD_SEL_PRIMARY 0
 #define DMA_AHBM_LCD_SEL_SECONDARY BIT(15)
@@ -564,7 +563,6 @@ struct mdp_dma_data {
 #define DMA_IBUF_NONCONTIGUOUS BIT(21)
 #else
 #define DMA_OUT_SEL_MDDI                    BIT(19)
-#define DMA_PACK_TIGHT                      0  // pecan
 #define DMA_AHBM_LCD_SEL_PRIMARY            0
 #define DMA_AHBM_LCD_SEL_SECONDARY          0
 #define DMA_IBUF_C3ALPHA_EN                 0

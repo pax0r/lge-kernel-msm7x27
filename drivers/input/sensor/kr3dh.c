@@ -43,6 +43,7 @@ static void kr3dh_early_suspend(struct early_suspend *h);
 static void kr3dh_late_resume(struct early_suspend *h);
 #endif
 
+#define KR3DH_FLIP_EVENT  /* Flip event handling by bongkyu.kim */
 #define KR3DH_DEBUG_PRINT	(1)
 #define KR3DH_ERROR_PRINT	(1)
 
@@ -93,7 +94,25 @@ module_param_named(debug_mask, kr3dh_debug_mask, int,
 #define CTRL_REG2		0x21	/* filter setting */
 #define CTRL_REG3		0x22	/* interrupt control reg */
 #define CTRL_REG4		0x23
-#define CTRL_REG5		0x24	/* scale selection */
+#define CTRL_REG5		0x23	/* scale selection */
+
+#ifdef KR3DH_FLIP_EVENT
+#define INT1_CFG      0x30
+#define INT1_SRC      0x31
+#define INT1_THS      0x32
+#define INT1_DURATION 0x33
+#define INT2_CFG      0x34
+#define INT2_SRC      0x35
+#define INT2_THS      0x36
+#define INT2_DURATION 0x37
+
+#define FLIP_UNKNOWN  0
+#define FLIP_UP       1
+#define FLIP_DOWN     2
+
+#define FLIP_UPSIDE_DOWN  1
+#define FLIP_DOWNSIDE_UP  2
+#endif
 
 #define PM_OFF          	0x00
 #define PM_NORMAL       	0x20
@@ -164,7 +183,17 @@ struct kr3dh_data {
 
 	u8 shift_adj;
 	u8 resume_state[5];
+#ifdef KR3DH_FLIP_EVENT
+	int flip_enabled;
+	int flip_last;  /* Last flip status */
+	unsigned int irq;
+	struct input_dev *gesture_dev;
+#endif
 };
+
+#ifdef KR3DH_FLIP_EVENT
+static struct work_struct flip_delayed_work;
+#endif
 
 /*
  * Because misc devices can not carry a pointer from driver register to
@@ -420,13 +449,21 @@ static void kr3dh_report_values(struct kr3dh_data *kr, int *xyz)
 
 static int kr3dh_enable(struct kr3dh_data *kr)
 {
+	int err;
+
 	if (!atomic_cmpxchg(&kr->enabled, 0, 1)) {
 
+		err = kr3dh_device_power_on(kr);
+		if (err < 0) {
+			atomic_set(&kr->enabled, 0);
+			return err;
+		}
 #if USE_WORK_QUEUE
 		schedule_delayed_work(&kr->input_work,
 				      msecs_to_jiffies(kr->
 						       pdata->poll_interval));
 #endif
+
 	}
 
 	return 0;
@@ -438,10 +475,100 @@ static int kr3dh_disable(struct kr3dh_data *kr)
 #if USE_WORK_QUEUE
 		cancel_delayed_work_sync(&kr->input_work);
 #endif
+		kr3dh_device_power_off(kr);
 	}
 
 	return 0;
 }
+
+#ifdef KR3DH_FLIP_EVENT
+
+static irqreturn_t kr3dh_irq_handler(int irq, void *dev_id)
+{
+	struct kr3dh_data *kr = dev_id;
+
+	printk("KR3DH IRQ Handler\n");
+	schedule_work(&flip_delayed_work);
+	
+	return IRQ_HANDLED;
+}
+
+static int kr3dh_flip_enable(struct kr3dh_data *kr)
+{
+	if (kr) {
+		int ret = 0;
+		u8 buf[2];
+		
+		if (!atomic_read(&kr->enabled)) {
+			/* If sensor is not enabled */
+			ret = kr3dh_device_power_on(kr);
+			if (ret < 0) {
+				atomic_set(&kr->enabled, 0);
+				return ret;
+			}
+		}
+
+		buf[0] = CTRL_REG3;
+		buf[1] = 0;
+		kr3dh_i2c_write(kr, buf, 1);
+		buf[0] = INT1_THS;
+		buf[1] = 0x21;
+		kr3dh_i2c_write(kr, buf, 1);
+		buf[0] = INT1_DURATION;
+		buf[1] = 0x03;
+		kr3dh_i2c_write(kr, buf, 1);
+		buf[0] = INT1_CFG;
+		buf[1] = 0x70;
+		kr3dh_i2c_write(kr, buf, 1);
+		
+		gpio_tlmm_config(GPIO_CFG(kr->pdata->irq_pin, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA), GPIO_CFG_ENABLE);
+		kr->irq = gpio_to_irq(kr->pdata->irq_pin);
+		ret = request_irq(kr->irq, kr3dh_irq_handler, IRQF_TRIGGER_RISING,
+			"kr3dh_irq", kr);
+		if (ret < 0) {
+			printk("kr3dh_irq request fail!!!\n");
+		}
+		
+		kr->flip_last = FLIP_UNKNOWN;
+		printk(KERN_INFO "kr3dh_flip_onoff_start\n");
+	}
+
+	return 0;
+}
+
+static int kr3dh_flip_disable(struct kr3dh_data *kr)
+{
+	if (kr) {
+		int ret = 0;
+		u8 buf[2];
+		
+		if (!atomic_read(&kr->enabled)) {
+			/* If sensor is not enabled */
+			kr3dh_device_power_off(kr);
+		}
+		
+		free_irq(kr->irq, kr);
+		
+		buf[0] = CTRL_REG3;
+		buf[1] = 0;
+		kr3dh_i2c_write(kr, buf, 1);
+		buf[0] = INT1_THS;
+		buf[1] = 0;
+		kr3dh_i2c_write(kr, buf, 1);
+		buf[0] = INT1_DURATION;
+		buf[1] = 0;
+		kr3dh_i2c_write(kr, buf, 1);
+		buf[0] = INT1_CFG;
+		buf[1] = 0;
+		kr3dh_i2c_write(kr, buf, 1);
+		
+		kr->flip_last = FLIP_UNKNOWN;
+		printk(KERN_INFO "kr3dh_flip_onoff_stop\n");
+	}
+
+	return 0;
+}
+#endif
 
 static int kr3dh_misc_open(struct inode *inode, struct file *file)
 {
@@ -682,66 +809,93 @@ static void kr3dh_input_cleanup(struct kr3dh_data *kr)
 	input_free_device(kr->input_dev);
 }
 
-static ssize_t show_enable_value(struct device *dev, 
-		struct device_attribute *attr, char *buf)
+#ifdef KR3DH_FLIP_EVENT
+
+static void flip_work_func(struct work_struct *work_ptr)
 {
-	char strbuf[256];
-	struct i2c_client *client = i2c_verify_client(dev);
-	struct kr3dh_data *kr = i2c_get_clientdata(client);
+	struct kr3dh_data *kr = kr3dh_misc_data;
+
 	
-	sprintf(strbuf, "%d", atomic_read(&kr->enabled));
-	return sprintf(buf, "%s\n", strbuf);
-}
+	u8 buf;
 
-static ssize_t store_enable_value(struct device *dev, 
-		struct device_attribute *attr, const char *buf, size_t count)
-{
-	int mode=0;
-	struct i2c_client *client = i2c_verify_client(dev);
-	struct kr3dh_data *kr = i2c_get_clientdata(client);
+	buf = INT1_SRC;
+	kr3dh_i2c_read(kr, &buf, 1);  /* IRQ clear and read position data */
+	printk("KR3DH flip_work_func INT1_SRC=%x\n", buf);
+
+	if (buf == 0x50) {
+		if (kr->flip_last == FLIP_DOWN) {
+			input_report_rel(kr->gesture_dev, REL_WHEEL, FLIP_DOWNSIDE_UP);
+			input_sync(kr->gesture_dev);
+
+			printk("KR3DH FLIP_DOWNSIDE_UP send!!!\n");
+		}
+		
+		kr->flip_last= FLIP_UP;	
+	} else if (buf == 0x60) {
+		if (kr->flip_last == FLIP_UP) {
+			input_report_rel(kr->gesture_dev, REL_WHEEL, FLIP_UPSIDE_DOWN);
+			input_sync(kr->gesture_dev);
+
+			printk("KR3DH FLIP_UPSIDE_DOWN send!!!\n");			
+		}
 	
-	sscanf(buf, "%d", &mode);
-	if (mode) {
-			kr3dh_device_power_on(kr);
-			atomic_set(&kr->enabled, 1);
-			printk(KERN_INFO "Power On Enable\n");
+		kr->flip_last = FLIP_DOWN;
+	} else {
+		printk("KR3DH unknown position!!!\n");
 	}
-	else {
-			kr3dh_device_power_off(kr);
-			atomic_set(&kr->enabled, 0);
-			printk(KERN_INFO "Power Off Disable\n");
-	}
-	return 0;
 }
 
-static ssize_t show_sensordata_value(struct device *dev, 
-		struct device_attribute *attr, char *buf)
+static ssize_t kr3dh_flip_onoff_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
 {
-	char strbuf[5];
-	int xyz[3];
-
-	struct i2c_client *client = i2c_verify_client(dev);
+	struct i2c_client *client = to_i2c_client(dev);
 	struct kr3dh_data *kr = i2c_get_clientdata(client);
-
-	kr3dh_get_acceleration_data(kr, xyz);
-	sprintf(strbuf, "%d %d %d", xyz[0], xyz[1], xyz[2]);
-	return sprintf(buf, "%s\n",strbuf);
+	return snprintf(buf, PAGE_SIZE, "%d\n", kr->flip_enabled);
 }
 
-static DEVICE_ATTR(enable, S_IRUGO | S_IWUSR, show_enable_value, store_enable_value);
-static DEVICE_ATTR(sensordata, S_IRUGO, show_sensordata_value, NULL);
+static ssize_t kr3dh_flip_onoff_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct kr3dh_data *kr = i2c_get_clientdata(client);
+	int enable;
+	
+	sscanf(buf, "%d", &enable);
 
+	if (enable != 0 && enable != 1) {
+		printk(KERN_INFO "Usage: echo [0 | 1] > flip_onoff");
+		printk(KERN_INFO " 0: flip event disable\n");
+		printk(KERN_INFO " 1: flip event enable\n");
+		return count;
+	}
+	
+	if (enable == kr->flip_enabled) {
+		printk(KERN_INFO "mode is already %d\n", kr->flip_enabled);
+		return count;
+	} else {
+		kr->flip_enabled = enable;
+		
+		if (enable) {
+			kr3dh_flip_enable(kr);
+		} else {
+			kr3dh_flip_disable(kr);
+		}
+	}
 
-static struct attribute *krd_attributes[] = {
+	return count;
+}
 
-	&dev_attr_enable.attr,
-	&dev_attr_sensordata.attr,
-	NULL,
+static DEVICE_ATTR(flip_onoff, S_IRUGO | S_IWUGO, kr3dh_flip_onoff_show, kr3dh_flip_onoff_store);
+
+static struct attribute *kr3dh_attributes[] = {
+	&dev_attr_flip_onoff.attr,
+	NULL
 };
 
-static struct attribute_group krd_attribute_group = {
-	.attrs = krd_attributes,
+static const struct attribute_group kr3dh_attr_group = {
+	.attrs = kr3dh_attributes,
 };
+#endif
 
 static int kr3dh_probe(struct i2c_client *client,
 			   const struct i2c_device_id *id)
@@ -841,19 +995,38 @@ static int kr3dh_probe(struct i2c_client *client,
 		goto err4;
 	}
 
-	/* Register sysfs hooks */
-	err = sysfs_create_group(&client->dev.kobj, &krd_attribute_group);
-	if (err) {
-		dev_err(&client->dev, "krd sysfs register failed\n");
-		goto err5;
-	}
-
-
 #if defined(CONFIG_HAS_EARLYSUSPEND)
 	kr3dh_sensor_early_suspend.suspend = kr3dh_early_suspend;
 	kr3dh_sensor_early_suspend.resume = kr3dh_late_resume;
 	kr3dh_sensor_early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN - 45;
 	register_early_suspend(&kr3dh_sensor_early_suspend);
+#endif
+
+#ifdef KR3DH_FLIP_EVENT
+	/* Register gesture input device */
+	kr->gesture_dev = input_allocate_device();
+	if (kr->gesture_dev == NULL) {
+		printk(KERN_ERR "kr->gesture_dev input_allocate_device failed!!!\n");
+		goto err4;
+	}
+
+	kr->gesture_dev->name = "lge_gesture";
+	set_bit(EV_SYN, kr->gesture_dev->evbit);
+	set_bit(EV_REL, kr->gesture_dev->evbit);
+	set_bit(REL_WHEEL, kr->gesture_dev->relbit);  // FLIP
+
+	err = input_register_device(kr->gesture_dev);
+	if (err) {
+		printk(KERN_ERR "kr->gesture_dev input_register_device failed!!!\n");
+		goto err4;
+	}
+	
+	/* Register sysfs hooks */
+	err = sysfs_create_group(&client->dev.kobj, &kr3dh_attr_group);
+	if (err)
+		goto err5;	
+
+	INIT_WORK(&flip_delayed_work, flip_work_func);
 #endif
 
 #if 0
@@ -868,9 +1041,10 @@ static int kr3dh_probe(struct i2c_client *client,
 	dev_info(&client->dev, "%s kr3dh: Accelerometer chip found\n", client->name);
 
 	return 0;
-
-err5:	
-	sysfs_remove_group(&client->dev.kobj, &krd_attribute_group);
+	
+err5:
+	input_unregister_device(kr->gesture_dev);
+	input_free_device(kr->gesture_dev);	
 err4:
 	kr3dh_input_cleanup(kr);
 err3:
@@ -891,7 +1065,6 @@ static int __devexit kr3dh_remove(struct i2c_client *client)
 {
 	/* TODO: revisit ordering here once _probe order is finalized */
 	struct kr3dh_data *kr = i2c_get_clientdata(client);
-	sysfs_remove_group(&client->dev.kobj, &krd_attribute_group);
 
 	misc_deregister(&kr3dh_misc_device);
 	kr3dh_input_cleanup(kr);
@@ -943,11 +1116,15 @@ static int kr3dh_resume(struct device *device)
 	return 0;
 #endif
 
-	if (kr->pdata->gpio_config){
-			kr->pdata->gpio_config(1);
-	}
-
+#ifdef KR3DH_FLIP_EVENT
+	kr3dh_enable(kr);
+	if (kr->flip_enabled)
+		kr3dh_flip_enable(kr);
+		
+	return 0;
+#else
 	return kr3dh_enable(kr);
+#endif
 }
 
 static int kr3dh_suspend(struct device *device)
@@ -963,11 +1140,14 @@ static int kr3dh_suspend(struct device *device)
 	}
 #endif
 
-	if (kr->pdata->gpio_config){
-			kr->pdata->gpio_config(0);
-	}
+#ifdef KR3DH_FLIP_EVENT
+	if (kr->flip_enabled)
+		kr3dh_flip_disable(kr);
 
 	return kr3dh_disable(kr);
+#else
+	return kr3dh_disable(kr);
+#endif
 }
 #endif
 
@@ -984,9 +1164,8 @@ static struct dev_pm_ops kr3dh_pm_ops = {
        .resume = kr3dh_resume,
 };
 #endif
-//LGE_DEV_PORTING UNIVA
-// [LGE PATCH] edward1.kim@lge.com 20110224  
-static struct i2c_driver __refdata kr3dh_driver = {
+
+static struct i2c_driver kr3dh_driver = {
 	.driver = {
 		   .name = "KR3DH",
 #if defined(CONFIG_PM)
