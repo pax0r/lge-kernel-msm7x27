@@ -58,7 +58,7 @@ static void mcs7000_late_resume(struct early_suspend *h);
  * 2011-01-19, by jinkyu.choi@lge.com
  */
 
-#if defined (CONFIG_MACH_MSM7X27_JUMP)
+#if defined (CONFIG_MACH_MSM7X27_JUMP) || defined(CONFIG_MACH_MSM7X27_PECAN) 
 #define SUPPORT_TOUCH_KEY 1
 #else
 #define SUPPORT_TOUCH_KEY 0
@@ -73,6 +73,8 @@ static void mcs7000_late_resume(struct early_suspend *h);
 
 #if defined (CONFIG_MACH_MSM7X27_JUMP)
 #define TS_POLLING_TIME 2 /* msec */
+#elif defined(CONFIG_MACH_MSM7X27_PECAN) 
+#define TS_SAMPLERATE_HZ 100
 #else
 #define TS_POLLING_TIME 0 /* msec */
 #endif
@@ -213,21 +215,23 @@ static __inline void mcs7000_key_event_touch(int touch_reg,  int value,  struct 
 }
 #endif
 
-static __inline void mcs7000_multi_ts_event_touch(int x1, int y1, int x2, int y2, int value,
+static __inline void mcs7000_multi_ts_event_touch(int x1, int y1, int z1, int x2, int y2, int z2, int value,
 		struct mcs7000_ts_device *dev)
 {
 	int report = 0;
 
-	if ((x1 >= 0) && (y1 >= 0)) {
-		input_report_abs(dev->input_dev, ABS_MT_TOUCH_MAJOR, value);
+	if ((x1 >= 0) && (y1 >= 0) && (z1 >= 0)) {
+		input_report_abs(dev->input_dev, ABS_MT_TOUCH_MAJOR, value ? z1 : value);
+		input_report_abs(dev->input_dev, ABS_MT_PRESSURE, value ? z1 : value);
 		input_report_abs(dev->input_dev, ABS_MT_POSITION_X, x1);
 		input_report_abs(dev->input_dev, ABS_MT_POSITION_Y, y1);
 		input_mt_sync(dev->input_dev);
 		report = 1;
 	}
 
-	if ((x2 >= 0) && (y2 >= 0)) {
-		input_report_abs(dev->input_dev, ABS_MT_TOUCH_MAJOR, value);
+	if ((x2 >= 0) && (y2 >= 0) && (z2 >= 0)) {
+		input_report_abs(dev->input_dev, ABS_MT_TOUCH_MAJOR, value ? z2 : value);
+		input_report_abs(dev->input_dev, ABS_MT_PRESSURE, value ? z1 : value);
 		input_report_abs(dev->input_dev, ABS_MT_POSITION_X, x2);
 		input_report_abs(dev->input_dev, ABS_MT_POSITION_Y, y2);
 		input_mt_sync(dev->input_dev);
@@ -257,9 +261,12 @@ static void mcs7000_work(struct work_struct *work)
 {
 	char pCommand;
 	int x1=0, y1 = 0;
-	int x2=0, y2 = 0;
-	static int pre_x1, pre_x2, pre_y1, pre_y2;
+	int x2=0, y2 = 0, z1 = 0, z2 = 0;
+	static int pre_x1, pre_x2, pre_y1, pre_y2, pre_z1, pre_z2;
 	static unsigned int s_input_type = NON_TOUCHED_STATE;
+#if defined(CONFIG_MACH_MSM7X27_PECAN)
+	static unsigned int prev_input_type = NON_TOUCHED_STATE;
+#endif
 	unsigned int input_type;
 #if SUPPORT_TOUCH_KEY
 	unsigned int key_touch;	
@@ -290,21 +297,22 @@ static void mcs7000_work(struct work_struct *work)
 	key_touch = (read_buf[0] & 0xf0) >> 4;
 #endif
 
-	x1 = y1 =0;
-	x2 = y2 = 0;
+	x1 = y1 = z1 = 0;
+	x2 = y2 = z2 = 0;
 
 	x1 = (read_buf[1] & 0xf0) << 4;
 	y1 = (read_buf[1] & 0x0f) << 8;
 
 	x1 |= read_buf[2];	
 	y1 |= read_buf[3];		
-
+	z1=read_buf[4];
 	if(input_type == MULTI_POINT_TOUCH) {
 		s_input_type = input_type;
 		x2 = (read_buf[5] & 0xf0) << 4;
 		y2 = (read_buf[5] & 0x0f) << 8;
 		x2 |= read_buf[6];
 		y2 |= read_buf[7];
+		z2=z1;
 	}
 
 	if (dev->pendown) { /* touch pressed case */
@@ -325,21 +333,35 @@ static void mcs7000_work(struct work_struct *work)
 			touch_pressed = 1;
 
 			if(input_type == MULTI_POINT_TOUCH) {
-				mcs7000_multi_ts_event_touch(x1, y1, x2, y2, PRESSED, dev);
+				//flip workaround by pax0r
+				#if defined(CONFIG_MACH_MSM7X27_PECAN)
+				//swaping y variables, we need to do this only in case of single multi-touch
+				if(prev_input_type == NON_TOUCHED_STATE){
+					swap(y1,y2);
+				} else { //workaround to avoid "jumping" of touched point  in multitouch case 
+					if(abs(pre_y2-y1)<5 || abs(pre_y1-y2)<5)
+						swap(y1,y2);
+					if(abs(pre_x2-x1)<5 || abs(pre_x1-x2)<5)
+						swap(x1,x2);
+				}
+				#endif
+				mcs7000_multi_ts_event_touch(x1, y1, z1, x2, y2, z2, PRESSED, dev);
 				pre_x1 = x1;
 				pre_y1 = y1;
+				pre_z1 = z1;
 				pre_x2 = x2;
 				pre_y2 = y2;
+				pre_z2 = z2;
 			}
 			else if(input_type == SINGLE_POINT_TOUCH) {
-				mcs7000_multi_ts_event_touch(x1, y1, -1, -1, PRESSED, dev);
+				mcs7000_multi_ts_event_touch(x1, y1, z1, -1, -1, -1, PRESSED, dev);
 				s_input_type = SINGLE_POINT_TOUCH;				
 			}
 #ifdef LG_FW_HARDKEY_BLOCK
 			dev->hardkey_block = 1;
 #endif
 		}
-	} 
+	}
 	else { /* touch released case */
 #if SUPPORT_TOUCH_KEY
 		if(key_pressed) {
@@ -351,12 +373,12 @@ static void mcs7000_work(struct work_struct *work)
 		if(touch_pressed) {
 			if(s_input_type == MULTI_POINT_TOUCH) {
 				DMSG("%s: multi touch release...(%d, %d), (%d, %d)\n", __FUNCTION__,pre_x1,pre_y1,pre_x2,pre_y2);
-				mcs7000_multi_ts_event_touch(pre_x1, pre_y1, pre_x2, pre_y2, RELEASED, dev);
+				mcs7000_multi_ts_event_touch(pre_x1, pre_y1, pre_z1, pre_x2, pre_y2, pre_z2, RELEASED, dev);
 				s_input_type = NON_TOUCHED_STATE; 
-				pre_x1 = -1; pre_y1 = -1; pre_x2 = -1; pre_y2 = -1;
+				pre_x1 = -1; pre_y1 = -1; pre_z1 = -1; pre_x2 = -1; pre_y2 = -1; pre_z2 = -1;
 			} else {
 				DMSG("%s: single touch release... %d, %d\n", __FUNCTION__, x1, y1);
-				mcs7000_multi_ts_event_touch(x1, y1, -1, -1, RELEASED, dev);
+				mcs7000_multi_ts_event_touch(x1, y1, z1, -1, -1, -1, RELEASED, dev);
 			}
 #ifdef LG_FW_HARDKEY_BLOCK
 			hrtimer_cancel(&dev->touch_timer);
@@ -369,11 +391,18 @@ static void mcs7000_work(struct work_struct *work)
 touch_retry:
 	if (dev->pendown) {
 		//ret = schedule_delayed_work(&dev->work, msecs_to_jiffies(TS_POLLING_TIME));
+		#if defined(TS_SAMPLERATE_HZ)
+		queue_delayed_work(dev->ts_wq, &dev->work,msecs_to_jiffies(HZ/TS_SAMPLERATE_HZ));
+		#else
 		queue_delayed_work(dev->ts_wq, &dev->work,msecs_to_jiffies(TS_POLLING_TIME));
+		#endif
 	} else {
 		enable_irq(dev->num_irq);
 		DMSG("%s: irq enable\n", __FUNCTION__);
 	}
+	#if defined(CONFIG_MACH_MSM7X27_PECAN)
+	prev_input_type = input_type;
+	#endif
 }
 
 static irqreturn_t mcs7000_ts_irq_handler(int irq, void *handle)
@@ -384,7 +413,11 @@ static irqreturn_t mcs7000_ts_irq_handler(int irq, void *handle)
 		disable_irq_nosync(dev->num_irq);
 		DMSG("%s: irq disable\n", __FUNCTION__);
 		//schedule_delayed_work(&dev->work, 0);
+		#if defined(TS_SAMPLERATE_HZ)
+		queue_delayed_work(dev->ts_wq, &dev->work,msecs_to_jiffies(HZ/TS_SAMPLERATE_HZ));
+		#else
 		queue_delayed_work(dev->ts_wq, &dev->work,msecs_to_jiffies(TS_POLLING_TIME));
+		#endif
 	}
 
 	return IRQ_HANDLED;
